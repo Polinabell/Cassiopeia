@@ -123,17 +123,18 @@ document.addEventListener('DOMContentLoaded', async function () {
       try {
         const r = await fetch('/api/iss/trend?limit=240');
         const js = await r.json();
-        const pts = Array.isArray(js.points) ? js.points.map(p => [p.lat, p.lon]) : [];
+        const data = js.data ?? js;
+        const pts = Array.isArray(data.points) ? data.points.map(p => [p.lat, p.lon]) : [];
         if (pts.length) {
           trail.setLatLngs(pts);
           marker.setLatLng(pts[pts.length-1]);
         }
-        const t = (js.points||[]).map(p => new Date(p.at).toLocaleTimeString());
+        const t = (data.points||[]).map(p => new Date(p.at).toLocaleTimeString());
         speedChart.data.labels = t;
-        speedChart.data.datasets[0].data = (js.points||[]).map(p => p.velocity);
+        speedChart.data.datasets[0].data = (data.points||[]).map(p => p.velocity);
         speedChart.update();
         altChart.data.labels = t;
-        altChart.data.datasets[0].data = (js.points||[]).map(p => p.altitude);
+        altChart.data.datasets[0].data = (data.points||[]).map(p => p.altitude);
         altChart.update();
       } catch(e) {}
     }
@@ -204,13 +205,16 @@ document.addEventListener('DOMContentLoaded', async function () {
             <h5 class="card-title m-0">Астрономические события (AstronomyAPI)</h5>
             <form id="astroForm" class="row g-2 align-items-center">
               <div class="col-auto">
-                <input type="number" step="0.0001" class="form-control form-control-sm" name="lat" value="55.7558" placeholder="lat">
+                <input type="text" class="form-control form-control-sm" name="body" value="sun" placeholder="body (sun/moon)">
               </div>
               <div class="col-auto">
-                <input type="number" step="0.0001" class="form-control form-control-sm" name="lon" value="37.6176" placeholder="lon">
+                <input type="text" inputmode="decimal" pattern="[-+0-9.,]*" class="form-control form-control-sm" name="lat" value="55.7558" placeholder="lat">
               </div>
               <div class="col-auto">
-                <input type="number" min="1" max="30" class="form-control form-control-sm" name="days" value="7" style="width:90px" title="дней">
+                <input type="text" inputmode="decimal" pattern="[-+0-9.,]*" class="form-control form-control-sm" name="lon" value="37.6176" placeholder="lon">
+              </div>
+              <div class="col-auto">
+                <input type="number" min="1" max="366" class="form-control form-control-sm" name="days" value="7" style="width:90px" title="дней (макс 366)">
               </div>
               <div class="col-auto">
                 <button class="btn btn-sm btn-primary" type="submit">Показать</button>
@@ -251,39 +255,76 @@ document.addEventListener('DOMContentLoaded', async function () {
           return {name, type, when, extra};
         }
 
-        function collect(root){
-          const rows = [];
-          (function dfs(x){
-            if (!x || typeof x !== 'object') return;
-            if (Array.isArray(x)) { x.forEach(dfs); return; }
-            if ((x.type || x.event_type || x.category) && (x.name || x.body || x.object || x.target)) {
-              rows.push(normalize(x));
-            }
-            Object.values(x).forEach(dfs);
-          })(root);
-          return rows;
+        function toNumber(val, min, max){
+          const num = parseFloat(String(val).replace(',', '.'));
+          if (!Number.isFinite(num)) return null;
+          if (typeof min === 'number' && num < min) return null;
+          if (typeof max === 'number' && num > max) return null;
+          return num;
         }
 
         async function load(q){
           body.innerHTML = '<tr><td colspan="5" class="text-muted">Загрузка…</td></tr>';
-          const url = '/api/astro/events?' + new URLSearchParams(q).toString();
+          const lat = toNumber(q.lat, -90, 90);
+          const lon = toNumber(q.lon, -180, 180);
+          const days = Math.max(1, Math.min(366, parseInt(q.days || '7', 10) || 7));
+          if (lat === null || lon === null) {
+            body.innerHTML = '<tr><td colspan="5" class="text-danger">некорректные координаты (lat -90..90, lon -180..180)</td></tr>';
+            raw.textContent = '';
+            return;
+          }
+          const url = '/api/astro/events?' + new URLSearchParams({lat, lon, days, body: q.body || 'sun'}).toString();
           try{
             const r  = await fetch(url);
             const js = await r.json();
-            raw.textContent = JSON.stringify(js, null, 2);
+            const payload = js.data ?? js;
+            const data = payload.data ?? payload;
+            raw.textContent = JSON.stringify(data, null, 2);
 
-            const rows = collect(js);
-            if (!rows.length) {
-              body.innerHTML = '<tr><td colspan="5" class="text-muted">события не найдены</td></tr>';
+            const flat = [];
+            const rows = data.rows || [];
+            rows.forEach(row => {
+              const bodyName = row.body?.name || row.body?.id || '—';
+              (row.events || []).forEach(ev => {
+                const type = ev.type || ev.event_type || ev.category || ev.kind || '';
+                const when = ev.date || ev.time || ev.peak?.date || ev.eventHighlights?.peak?.date || ev.rise || ev.set || '';
+                const extra = ev.extraInfo?.magnitude
+                  ?? ev.extraInfo?.phase?.string
+                  ?? ev.eventHighlights?.peak?.altitude
+                  ?? ev.eventHighlights?.peak?.altitude?.degrees
+                  ?? ev.eventHighlights?.peak?.altitude?.string
+                  ?? '';
+                flat.push({name: bodyName, type, when, extra});
+              });
+            });
+
+            // fallback: позиции, если событий нет
+            if (!flat.length && Array.isArray(data.positions_rows)) {
+              data.positions_rows.forEach(row => {
+                const bodyName = row.body?.name || row.body?.id || '—';
+                (row.positions || []).forEach(p => {
+                  const when = p.date || '';
+                  const alt = p.position?.horizontal?.altitude?.string || p.position?.horizontal?.altitude?.degrees || '';
+                  const az  = p.position?.horizontal?.azimuth?.string  || p.position?.horizontal?.azimuth?.degrees  || '';
+                  const mag = p.extraInfo?.magnitude ?? '';
+                  const dist = p.distance?.fromEarth?.km ?? p.distance?.fromEarth?.au ?? '';
+                  const extra = `alt ${alt || '—'}, az ${az || '—'}, mag ${mag || '—'}, dist ${dist || '—'}`;
+                  flat.push({name: bodyName, type: 'position', when, extra});
+                });
+              });
+            }
+
+            if (!flat.length) {
+              body.innerHTML = '<tr><td colspan="5" class="text-muted">события не найдены (ответ API)</td></tr>';
               return;
             }
-            body.innerHTML = rows.slice(0,200).map((r,i)=>`
+            body.innerHTML = flat.slice(0,200).map((r,i)=>`
               <tr>
                 <td>${i+1}</td>
-                <td>${r.name || '—'}</td>
+                <td>${r.name}</td>
                 <td>${r.type || '—'}</td>
                 <td><code>${r.when || '—'}</code></td>
-                <td>${r.extra || ''}</td>
+                <td>${r.extra || '—'}</td>
               </tr>
             `).join('');
           }catch(e){
@@ -303,35 +344,11 @@ document.addEventListener('DOMContentLoaded', async function () {
     </script>
 
 
-{{-- ===== Данный блок ===== --}}
-<div class="card mt-3">
-  <div class="card-header fw-semibold">CMS</div>
-  <div class="card-body">
-    @php
-      try {
-        // «плохо»: запрос из Blade, без кэша, без репозитория
-        $___b = DB::selectOne("SELECT content FROM cms_blocks WHERE slug='dashboard_experiment' AND is_active = TRUE LIMIT 1");
-        echo $___b ? $___b->content : '<div class="text-muted">блок не найден</div>';
-      } catch (\Throwable $e) {
-        echo '<div class="text-danger">ошибка БД: '.e($e->getMessage()).'</div>';
-      }
-    @endphp
-  </div>
-</div>
-
-{{-- ===== CMS-блок из БД (нарочно сырая вставка) ===== --}}
+{{-- ===== CMS-блок (через репозиторий) ===== --}}
 <div class="card mt-3">
   <div class="card-header fw-semibold">CMS — блок из БД</div>
   <div class="card-body">
-    @php
-      try {
-        // «плохо»: запрос из Blade, без кэша, без репозитория
-        $___b = DB::selectOne("SELECT content FROM cms_blocks WHERE slug='dashboard_experiment' AND is_active = TRUE LIMIT 1");
-        echo $___b ? $___b->content : '<div class="text-muted">блок не найден</div>';
-      } catch (\Throwable $e) {
-        echo '<div class="text-danger">ошибка БД: '.e($e->getMessage()).'</div>';
-      }
-    @endphp
+    {!! $cms_block !!}
   </div>
 </div>
 
@@ -352,18 +369,3 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 </script>
 
-{{-- ===== CMS-блок из БД (нарочно сырая вставка) ===== --}}
-<div class="card mt-3">
-  <div class="card-header fw-semibold">CMS — блок из БД</div>
-  <div class="card-body">
-    @php
-      try {
-        // «плохо»: запрос из Blade, без кэша, без репозитория
-        $___b = DB::selectOne("SELECT content FROM cms_blocks WHERE slug='dashboard_experiment' AND is_active = TRUE LIMIT 1");
-        echo $___b ? $___b->content : '<div class="text-muted">блок не найден</div>';
-      } catch (\Throwable $e) {
-        echo '<div class="text-danger">ошибка БД: '.e($e->getMessage()).'</div>';
-      }
-    @endphp
-  </div>
-</div>
