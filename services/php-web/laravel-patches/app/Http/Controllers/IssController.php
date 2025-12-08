@@ -2,18 +2,19 @@
 
 namespace App\Http\Controllers;
 
+use App\Services\RustApiService;
+
 class IssController extends Controller
 {
-    public function index()
+    public function index(RustApiService $rust)
     {
-        $base = getenv('RUST_BASE') ?: 'http://rust_iss:3000';
+        $lastJson  = $rust->get('/last');
+        $trendJson = $rust->get('/iss/trend');
 
-        $last  = @file_get_contents($base.'/last');
-        $trend = @file_get_contents($base.'/iss/trend');
-
-        $lastJson  = $last  ? json_decode($last,  true) : [];
-        $trendJson = $trend ? json_decode($trend, true) : [];
-
-        return view('iss', ['last' => $lastJson, 'trend' => $trendJson, 'base' => $base]);
+        return view('iss', [
+            'last' => $lastJson['data'] ?? [],
+            'trend' => $trendJson['data'] ?? [],
+            'base' => env('RUST_BASE', 'http://rust_iss:3000'),
+        ]);
     }
 }

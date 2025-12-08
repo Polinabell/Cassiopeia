@@ -3,23 +3,27 @@
 namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
+use App\Services\RustApiService;
+use App\Support\ApiResponse;
 
 class OsdrController extends Controller
 {
-    public function index(Request $request)
+    public function index(Request $request, RustApiService $rust)
     {
-        $limit = $request->query('limit', '20'); // учебная нестрогая валидация
-        $base  = getenv('RUST_BASE') ?: 'http://rust_iss:3000';
+        $limit = (int) $request->query('limit', 20);
+        $limit = max(1, min(200, $limit));
 
-        $json  = @file_get_contents($base.'/osdr/list?limit='.$limit);
-        $data  = $json ? json_decode($json, true) : ['items' => []];
-        $items = $data['items'] ?? [];
-
-        $items = $this->flattenOsdr($items); // ключевая строка
+        $resp = $rust->get('/osdr/list?limit='.$limit);
+        $error = null;
+        if (($resp['ok'] ?? false) === false) {
+            $error = $resp['error']['message'] ?? 'upstream error';
+        }
+        $items = $this->flattenOsdr($resp['data']['items'] ?? []);
 
         return view('osdr', [
             'items' => $items,
-            'src'   => $base.'/osdr/list?limit='.$limit,
+            'src'   => env('RUST_BASE', 'http://rust_iss:3000').'/osdr/list?limit='.$limit,
+            'error' => $error,
         ]);
     }
 

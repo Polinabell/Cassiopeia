@@ -4,27 +4,23 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use App\Support\JwstHelper;
+use App\Services\RustApiService;
+use App\Repositories\CmsRepository;
 
 class DashboardController extends Controller
 {
-    private function base(): string { return getenv('RUST_BASE') ?: 'http://rust_iss:3000'; }
-
-    private function getJson(string $url, array $qs = []): array {
-        if ($qs) $url .= (str_contains($url,'?')?'&':'?') . http_build_query($qs);
-        $raw = @file_get_contents($url);
-        return $raw ? (json_decode($raw, true) ?: []) : [];
-    }
-
-    public function index()
+    public function index(RustApiService $rust, CmsRepository $cms)
     {
-        // минимум: карта МКС и пустые контейнеры, JWST-галерея подтянется через /api/jwst/feed
-        $b     = $this->base();
-        $iss   = $this->getJson($b.'/last');
-        $trend = []; // фронт сам заберёт /api/iss/trend (через nginx прокси)
+        $issResp = $rust->get('/last');
+        $iss = ($issResp['ok'] ?? false) ? ($issResp['data'] ?? []) : [];
 
+        $cmsBlock = $cms->findBlock('dashboard_experiment');
+        $cmsHtml = $cmsBlock ? $this->sanitize($cmsBlock['content']) : '<div class="text-muted">блок не найден</div>';
+
+        // фронт сам дернёт /api/iss/trend
         return view('dashboard', [
             'iss' => $iss,
-            'trend' => $trend,
+            'trend' => [],
             'jw_gallery' => [], // не нужно сервером
             'jw_observation_raw' => [],
             'jw_observation_summary' => [],
@@ -35,6 +31,7 @@ class DashboardController extends Controller
                 'iss_alt'   => $iss['payload']['altitude'] ?? null,
                 'neo_total' => 0,
             ],
+            'cms_block' => $cmsHtml,
         ]);
     }
 
@@ -57,6 +54,26 @@ class DashboardController extends Controller
         $per   = max(1, min(60, (int)$r->query('perPage', 24)));
 
         $jw = new JwstHelper();
+
+        $guessInstrument = function(array $it): array {
+            $cand = [];
+            foreach (($it['details']['instruments'] ?? []) as $I) {
+                if (is_array($I) && !empty($I['instrument'])) $cand[] = strtoupper($I['instrument']);
+            }
+            foreach (['instrument','inst','camera','detector'] as $k) {
+                if (!empty($it[$k]) && is_string($it[$k])) $cand[] = strtoupper($it[$k]);
+            }
+            $fields = [$it['details']['suffix'] ?? '', $it['suffix'] ?? '', $it['url'] ?? '', $it['location'] ?? '', $it['thumbnail'] ?? '', $it['id'] ?? '', $it['observation_id'] ?? ''];
+            foreach ($fields as $f) {
+                $s = strtolower((string)$f);
+                if (str_contains($s, 'nircam') || str_contains($s,'_nrc')) $cand[] = 'NIRCam';
+                if (str_contains($s, 'miri')) $cand[] = 'MIRI';
+                if (str_contains($s, 'niriss')) $cand[] = 'NIRISS';
+                if (str_contains($s, 'nirspec') || str_contains($s,'nrs')) $cand[] = 'NIRSpec';
+                if (str_contains($s, 'fgs')) $cand[] = 'FGS';
+            }
+            return array_values(array_unique(array_filter($cand)));
+        };
 
         // выбираем эндпоинт
         $path = 'all/type/jpg';
@@ -83,11 +100,15 @@ class DashboardController extends Controller
             if (!$url) continue;
 
             // фильтр по инструменту
-            $instList = [];
-            foreach (($it['details']['instruments'] ?? []) as $I) {
-                if (is_array($I) && !empty($I['instrument'])) $instList[] = strtoupper($I['instrument']);
-            }
+            $instList = $guessInstrument($it);
             if ($instF && $instList && !in_array($instF, $instList, true)) continue;
+            if ($instF && !$instList) {
+                // если не смогли угадать — пробуем по полю instrument (строка) или пропускаем
+                $rawInst = strtoupper((string)($it['instrument'] ?? $it['details']['instrument'] ?? ''));
+                if ($rawInst && $rawInst !== $instF) continue;
+                if (!$rawInst) continue; // нет маркеров инструмента — не засоряем выдачу
+                $instList = [$rawInst];
+            }
 
             $items[] = [
                 'url'      => $url,
@@ -111,5 +132,9 @@ class DashboardController extends Controller
             'count'  => count($items),
             'items'  => $items,
         ]);
+    }
+
+    private function sanitize(string $html): string {
+        return strip_tags($html, '<p><b><strong><i><em><ul><ol><li><br><h3><h4><code>');
     }
 }

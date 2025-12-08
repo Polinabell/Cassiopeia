@@ -2,39 +2,27 @@
 
 namespace App\Http\Controllers;
 
-use Illuminate\Http\Response;
+use App\Services\RustApiService;
+use App\Support\ApiResponse;
 
 class ProxyController extends Controller
 {
-    private function base(): string {
-        return getenv('RUST_BASE') ?: 'http://rust_iss:3000';
-    }
+    public function last(RustApiService $svc)  { return $this->pipe($svc, '/last'); }
 
-    public function last()  { return $this->pipe('/last'); }
-
-    public function trend() {
+    public function trend(RustApiService $svc) {
         $q = request()->getQueryString();
-        return $this->pipe('/iss/trend' . ($q ? '?' . $q : ''));
+        return $this->pipe($svc, '/iss/trend' . ($q ? '?' . $q : ''));
     }
 
-    private function pipe(string $path)
+    private function pipe(RustApiService $svc, string $path)
     {
-        $url = $this->base() . $path;
-        try {
-            $ctx = stream_context_create([
-                'http' => ['timeout' => 5, 'ignore_errors' => true],
-            ]);
-            $body = @file_get_contents($url, false, $ctx);
-            if ($body === false || trim($body) === '') {
-                $body = '{}';
-            }
-            json_decode($body);
-            if (json_last_error() !== JSON_ERROR_NONE) {
-                $body = '{}';
-            }
-            return new Response($body, 200, ['Content-Type' => 'application/json']);
-        } catch (\Throwable $e) {
-            return new Response('{"error":"upstream"}', 200, ['Content-Type' => 'application/json']);
+        $json = $svc->get($path);
+        if (!is_array($json)) {
+            return ApiResponse::error('UPSTREAM', 'rust_iss upstream error');
         }
+        if (($json['ok'] ?? false) === false && isset($json['error'])) {
+            return response()->json($json, 200);
+        }
+        return response()->json($json, 200);
     }
 }

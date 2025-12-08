@@ -1,11 +1,17 @@
 <?php
 namespace App\Http\Controllers;
-use Illuminate\Support\Facades\DB;
+use App\Repositories\CmsRepository;
+use Illuminate\Support\Str;
 
 class CmsController extends Controller {
-  public function page(string $slug) {
-    $row = DB::selectOne("SELECT title, content FROM cms_blocks WHERE slug = ? AND is_active = TRUE", [$slug]);
+  public function page(string $slug, CmsRepository $repo) {
+    $row = $repo->findBlock($slug);
     if (!$row) abort(404);
-    return response()->view('cms.page', ['title' => $row->title, 'html' => $row->content]);
+    $safe = $this->sanitize($row['content']);
+    return response()->view('cms.page', ['title' => $row['title'], 'html' => $safe]);
+  }
+
+  private function sanitize(string $html): string {
+    return strip_tags($html, '<p><b><strong><i><em><ul><ol><li><br><h3><h4><code>');
   }
 }
