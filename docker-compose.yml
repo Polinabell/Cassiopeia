@@ -5,6 +5,7 @@ volumes:
   pgdata:
   appdata:
   csvdata:
+  redisdata:
 
 services:
   db:
@@ -66,11 +67,17 @@ services:
       DB_USERNAME: monouser
       DB_PASSWORD: monopass
       RUST_BASE: http://rust_iss:3000
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      CACHE_DRIVER: redis
+      SESSION_DRIVER: redis
     depends_on:
       db:
         condition: service_healthy
       rust_iss:
         condition: service_started
+      redis:
+        condition: service_healthy
     networks:
       - backend
     volumes:
@@ -89,6 +96,22 @@ services:
       - backend
     ports:
       - "8080:80"
+
+  redis:
+    image: redis:7-alpine
+    container_name: iss_redis
+    command: redis-server --appendonly yes --maxmemory 128mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - redisdata:/data
+    networks:
+      - backend
+    ports:
+      - "6379:6379"
 
   telemetry_cli:
     build:

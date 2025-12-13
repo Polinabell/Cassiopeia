@@ -1,371 +1,282 @@
 @extends('layouts.app')
 
 @section('content')
-<div class="container pb-5">
-  {{-- верхние карточки --}}
-  <div class="row g-3 mb-2">
-    <div class="col-6 col-md-3"><div class="border rounded p-2 text-center">
-      <div class="small text-muted">Скорость МКС</div>
-      <div class="fs-4">{{ isset(($iss['payload'] ?? [])['velocity']) ? number_format($iss['payload']['velocity'],0,'',' ') : '—' }}</div>
-    </div></div>
-    <div class="col-6 col-md-3"><div class="border rounded p-2 text-center">
-      <div class="small text-muted">Высота МКС</div>
-      <div class="fs-4">{{ isset(($iss['payload'] ?? [])['altitude']) ? number_format($iss['payload']['altitude'],0,'',' ') : '—' }}</div>
-    </div></div>
+<div class="container py-4">
+  <div class="text-center mb-5">
+    <h1 class="display-5 fw-bold mb-3 hero-title">🚀 Space Dashboard</h1>
+    <p class="lead text-muted">Централизованная панель мониторинга космических данных</p>
   </div>
 
-  <div class="row g-3">
-    {{-- левая колонка: JWST наблюдение (как раньше было под APOD можно держать своим блоком) --}}
-    <div class="col-lg-7">
-      <div class="card shadow-sm h-100">
-        <div class="card-body">
-          <h5 class="card-title">JWST — выбранное наблюдение</h5>
-          <div class="text-muted">Этот блок остаётся как был (JSON/сводка). Основная галерея ниже.</div>
+  {{-- Quick Stats --}}
+  <div class="row g-3 mb-4">
+    <div class="col-6 col-md-3">
+      <div class="card stat-card h-100">
+        <div class="card-body text-center">
+          <div class="stat-icon">🛰</div>
+          <div class="stat-value" id="issSpeed">—</div>
+          <div class="stat-label text-muted small">Скорость МКС, км/ч</div>
         </div>
       </div>
     </div>
-
-    {{-- правая колонка: карта МКС --}}
-    <div class="col-lg-5">
-      <div class="card shadow-sm h-100">
-        <div class="card-body">
-          <h5 class="card-title">МКС — положение и движение</h5>
-          <div id="map" class="rounded mb-2 border" style="height:300px"></div>
-          <div class="row g-2">
-            <div class="col-6"><canvas id="issSpeedChart" height="110"></canvas></div>
-            <div class="col-6"><canvas id="issAltChart"   height="110"></canvas></div>
+    <div class="col-6 col-md-3">
+      <div class="card stat-card h-100">
+        <div class="card-body text-center">
+          <div class="stat-icon">📍</div>
+          <div class="stat-value" id="issAlt">—</div>
+          <div class="stat-label text-muted small">Высота МКС, км</div>
+        </div>
+      </div>
+    </div>
+    <div class="col-6 col-md-3">
+      <div class="card stat-card h-100">
+        <div class="card-body text-center">
+          <div class="stat-icon">📡</div>
+          <div class="stat-value" id="telemetryCount">{{ count($telemetry ?? []) }}</div>
+          <div class="stat-label text-muted small">Записей телеметрии</div>
+        </div>
+      </div>
+    </div>
+    <div class="col-6 col-md-3">
+      <div class="card stat-card h-100">
+        <div class="card-body text-center">
+          <div class="stat-icon">⏱</div>
+          <div class="stat-value" id="uptime">{{ date('H:i') }}</div>
+          <div class="stat-label text-muted small">Время (UTC)</div>
           </div>
         </div>
       </div>
     </div>
 
-    {{-- НИЖНЯЯ ПОЛОСА: НОВАЯ ГАЛЕРЕЯ JWST --}}
-    <div class="col-12">
-      <div class="card shadow-sm">
+  {{-- Main Navigation Cards --}}
+  <div class="row g-4">
+    <div class="col-md-6 col-lg-4">
+      <a href="/iss" class="text-decoration-none">
+        <div class="card nav-card h-100">
         <div class="card-body">
-          <div class="d-flex justify-content-between align-items-center mb-2">
-            <h5 class="card-title m-0">JWST — последние изображения</h5>
-            <form id="jwstFilter" class="row g-2 align-items-center">
-              <div class="col-auto">
-                <select class="form-select form-select-sm" name="source" id="srcSel">
-                  <option value="jpg" selected>Все JPG</option>
-                  <option value="suffix">По суффиксу</option>
-                  <option value="program">По программе</option>
-                </select>
+            <div class="nav-card-icon">🛰</div>
+            <h5 class="card-title">МКС Трекер</h5>
+            <p class="card-text text-muted small">Положение и траектория Международной космической станции в реальном времени</p>
               </div>
-              <div class="col-auto">
-                <input type="text" class="form-control form-control-sm" name="suffix" id="suffixInp" placeholder="_cal / _thumb" style="width:140px;display:none">
-                <input type="text" class="form-control form-control-sm" name="program" id="progInp" placeholder="2734" style="width:110px;display:none">
+          <div class="card-footer bg-transparent border-0">
+            <span class="badge bg-success">Live</span>
               </div>
-              <div class="col-auto">
-                <select class="form-select form-select-sm" name="instrument" style="width:130px">
-                  <option value="">Любой инструмент</option>
-                  <option>NIRCam</option><option>MIRI</option><option>NIRISS</option><option>NIRSpec</option><option>FGS</option>
-                </select>
               </div>
-              <div class="col-auto">
-                <select class="form-select form-select-sm" name="perPage" style="width:90px">
-                  <option>12</option><option selected>24</option><option>36</option><option>48</option>
-                </select>
+      </a>
               </div>
-              <div class="col-auto">
-                <button class="btn btn-sm btn-primary" type="submit">Показать</button>
+
+    <div class="col-md-6 col-lg-4">
+      <a href="/telemetry" class="text-decoration-none">
+        <div class="card nav-card h-100">
+          <div class="card-body">
+            <div class="nav-card-icon">📡</div>
+            <h5 class="card-title">Телеметрия</h5>
+            <p class="card-text text-muted small">Данные датчиков с сортировкой, фильтрацией и экспортом в CSV/XLSX</p>
               </div>
-            </form>
+          <div class="card-footer bg-transparent border-0">
+            <span class="badge bg-primary">Export</span>
+          </div>
+        </div>
+      </a>
           </div>
 
-          <style>
-            .jwst-slider{position:relative}
-            .jwst-track{
-              display:flex; gap:.75rem; overflow:auto; scroll-snap-type:x mandatory; padding:.25rem;
-            }
-            .jwst-item{flex:0 0 180px; scroll-snap-align:start}
-            .jwst-item img{width:100%; height:180px; object-fit:cover; border-radius:.5rem}
-            .jwst-cap{font-size:.85rem; margin-top:.25rem}
-            .jwst-nav{position:absolute; top:40%; transform:translateY(-50%); z-index:2}
-            .jwst-prev{left:-.25rem} .jwst-next{right:-.25rem}
-          </style>
-
-          <div class="jwst-slider">
-            <button class="btn btn-light border jwst-nav jwst-prev" type="button" aria-label="Prev">‹</button>
-            <div id="jwstTrack" class="jwst-track border rounded"></div>
-            <button class="btn btn-light border jwst-nav jwst-next" type="button" aria-label="Next">›</button>
+    <div class="col-md-6 col-lg-4">
+      <a href="/osdr" class="text-decoration-none">
+        <div class="card nav-card h-100">
+          <div class="card-body">
+            <div class="nav-card-icon">📁</div>
+            <h5 class="card-title">NASA OSDR</h5>
+            <p class="card-text text-muted small">Open Science Data Repository — научные датасеты NASA</p>
           </div>
+          <div class="card-footer bg-transparent border-0">
+            <span class="badge bg-info">Datasets</span>
+          </div>
+        </div>
+      </a>
+    </div>
 
-          <div id="jwstInfo" class="small text-muted mt-2"></div>
+
+    <div class="col-md-6 col-lg-4">
+      <a href="/jwst" class="text-decoration-none">
+        <div class="card nav-card h-100">
+          <div class="card-body">
+            <div class="nav-card-icon">🔭</div>
+            <h5 class="card-title">JWST Галерея</h5>
+            <p class="card-text text-muted small">Изображения телескопа James Webb с фильтрацией по инструментам</p>
+          </div>
+          <div class="card-footer bg-transparent border-0">
+            <span class="badge bg-secondary">Gallery</span>
+          </div>
+        </div>
+      </a>
+    </div>
+
+    <div class="col-md-6 col-lg-4">
+      <a href="/astro" class="text-decoration-none">
+        <div class="card nav-card h-100">
+          <div class="card-body">
+            <div class="nav-card-icon">🌠</div>
+            <h5 class="card-title">Астрономия</h5>
+            <p class="card-text text-muted small">События и позиции небесных тел (AstronomyAPI)</p>
+          </div>
+          <div class="card-footer bg-transparent border-0">
+            <span class="badge bg-danger">Events</span>
         </div>
       </div>
-    </div>
+      </a>
   </div>
 </div>
 
-<script>
-document.addEventListener('DOMContentLoaded', async function () {
-  // ====== карта и графики МКС (как раньше) ======
-  if (typeof L !== 'undefined' && typeof Chart !== 'undefined') {
-    const last = @json(($iss['payload'] ?? []));
-    let lat0 = Number(last.latitude || 0), lon0 = Number(last.longitude || 0);
-    const map = L.map('map', { attributionControl:false }).setView([lat0||0, lon0||0], lat0?3:2);
-    L.tileLayer('https://{s}.tile.openstreetmap.de/{z}/{x}/{y}.png', { noWrap:true }).addTo(map);
-    const trail  = L.polyline([], {weight:3}).addTo(map);
-    const marker = L.marker([lat0||0, lon0||0]).addTo(map).bindPopup('МКС');
-
-    const speedChart = new Chart(document.getElementById('issSpeedChart'), {
-      type: 'line', data: { labels: [], datasets: [{ label: 'Скорость', data: [] }] },
-      options: { responsive: true, scales: { x: { display: false } } }
-    });
-    const altChart = new Chart(document.getElementById('issAltChart'), {
-      type: 'line', data: { labels: [], datasets: [{ label: 'Высота', data: [] }] },
-      options: { responsive: true, scales: { x: { display: false } } }
-    });
-
-    async function loadTrend() {
-      try {
-        const r = await fetch('/api/iss/trend?limit=240');
-        const js = await r.json();
-        const data = js.data ?? js;
-        const pts = Array.isArray(data.points) ? data.points.map(p => [p.lat, p.lon]) : [];
-        if (pts.length) {
-          trail.setLatLngs(pts);
-          marker.setLatLng(pts[pts.length-1]);
-        }
-        const t = (data.points||[]).map(p => new Date(p.at).toLocaleTimeString());
-        speedChart.data.labels = t;
-        speedChart.data.datasets[0].data = (data.points||[]).map(p => p.velocity);
-        speedChart.update();
-        altChart.data.labels = t;
-        altChart.data.datasets[0].data = (data.points||[]).map(p => p.altitude);
-        altChart.update();
-      } catch(e) {}
-    }
-    loadTrend();
-    setInterval(loadTrend, 15000);
-  }
-
-  // ====== JWST ГАЛЕРЕЯ ======
-  const track = document.getElementById('jwstTrack');
-  const info  = document.getElementById('jwstInfo');
-  const form  = document.getElementById('jwstFilter');
-  const srcSel = document.getElementById('srcSel');
-  const sfxInp = document.getElementById('suffixInp');
-  const progInp= document.getElementById('progInp');
-
-  function toggleInputs(){
-    sfxInp.style.display  = (srcSel.value==='suffix')  ? '' : 'none';
-    progInp.style.display = (srcSel.value==='program') ? '' : 'none';
-  }
-  srcSel.addEventListener('change', toggleInputs); toggleInputs();
-
-  async function loadFeed(qs){
-    track.innerHTML = '<div class="p-3 text-muted">Загрузка…</div>';
-    info.textContent= '';
-    try{
-      const url = '/api/jwst/feed?'+new URLSearchParams(qs).toString();
-      const r = await fetch(url);
-      const js = await r.json();
-      track.innerHTML = '';
-      (js.items||[]).forEach(it=>{
-        const fig = document.createElement('figure');
-        fig.className = 'jwst-item m-0';
-        fig.innerHTML = `
-          <a href="${it.link||it.url}" target="_blank" rel="noreferrer">
-            <img loading="lazy" src="${it.url}" alt="JWST">
-          </a>
-          <figcaption class="jwst-cap">${(it.caption||'').replaceAll('<','&lt;')}</figcaption>`;
-        track.appendChild(fig);
-      });
-      info.textContent = `Источник: ${js.source} · Показано ${js.count||0}`;
-    }catch(e){
-      track.innerHTML = '<div class="p-3 text-danger">Ошибка загрузки</div>';
-    }
-  }
-
-  form.addEventListener('submit', function(ev){
-    ev.preventDefault();
-    const fd = new FormData(form);
-    const q = Object.fromEntries(fd.entries());
-    loadFeed(q);
-  });
-
-  // навигация
-  document.querySelector('.jwst-prev').addEventListener('click', ()=> track.scrollBy({left:-600, behavior:'smooth'}));
-  document.querySelector('.jwst-next').addEventListener('click', ()=> track.scrollBy({left: 600, behavior:'smooth'}));
-
-  // стартовые данные
-  loadFeed({source:'jpg', perPage:24});
-});
-</script>
-@endsection
-
-    <!-- ASTRO — события -->
-    <div class="col-12 order-first mt-3">
+  {{-- Mini Map & Telemetry Preview --}}
+  <div class="row g-4 mt-3">
+    <div class="col-lg-6">
       <div class="card shadow-sm">
-        <div class="card-body">
-          <div class="d-flex justify-content-between align-items-center mb-2">
-            <h5 class="card-title m-0">Астрономические события (AstronomyAPI)</h5>
-            <form id="astroForm" class="row g-2 align-items-center">
-              <div class="col-auto">
-                <input type="text" class="form-control form-control-sm" name="body" value="sun" placeholder="body (sun/moon)">
+        <div class="card-header d-flex justify-content-between align-items-center">
+          <strong>🗺 МКС на карте</strong>
+          <a href="/iss" class="btn btn-sm btn-outline-light">Подробнее</a>
               </div>
-              <div class="col-auto">
-                <input type="text" inputmode="decimal" pattern="[-+0-9.,]*" class="form-control form-control-sm" name="lat" value="55.7558" placeholder="lat">
+        <div class="card-body p-0">
+          <div id="map" style="height:280px;border-radius:0 0 8px 8px"></div>
               </div>
-              <div class="col-auto">
-                <input type="text" inputmode="decimal" pattern="[-+0-9.,]*" class="form-control form-control-sm" name="lon" value="37.6176" placeholder="lon">
               </div>
-              <div class="col-auto">
-                <input type="number" min="1" max="366" class="form-control form-control-sm" name="days" value="7" style="width:90px" title="дней (макс 366)">
-              </div>
-              <div class="col-auto">
-                <button class="btn btn-sm btn-primary" type="submit">Показать</button>
-              </div>
-            </form>
           </div>
 
-          <div class="table-responsive">
-            <table class="table table-sm align-middle">
-              <thead>
-                <tr><th>#</th><th>Тело</th><th>Событие</th><th>Когда (UTC)</th><th>Дополнительно</th></tr>
+    <div class="col-lg-6">
+      <div class="card shadow-sm">
+        <div class="card-header d-flex justify-content-between align-items-center">
+          <strong>📊 Последняя телеметрия</strong>
+          <a href="/telemetry" class="btn btn-sm btn-outline-light">Все данные</a>
+        </div>
+        <div class="card-body p-0">
+          <div class="table-responsive" style="max-height:280px;overflow:auto">
+            <table class="table table-sm table-hover mb-0">
+              <thead class="table-dark sticky-top">
+                <tr><th>Время</th><th>V</th><th>T°</th><th>Файл</th></tr>
               </thead>
-              <tbody id="astroBody">
-                <tr><td colspan="5" class="text-muted">нет данных</td></tr>
+              <tbody>
+                @forelse(($telemetry ?? []) as $row)
+                  <tr>
+                    <td><code class="small">{{ substr($row['recorded_at'], 11, 8) }}</code></td>
+                    <td>{{ number_format($row['voltage'], 1) }}</td>
+                    <td>{{ number_format($row['temp'], 1) }}</td>
+                    <td class="small text-truncate" style="max-width:100px">{{ $row['source_file'] }}</td>
+                  </tr>
+                @empty
+                  <tr><td colspan="4" class="text-muted text-center">нет данных</td></tr>
+                @endforelse
               </tbody>
             </table>
           </div>
-
-          <details class="mt-2">
-            <summary>Полный JSON</summary>
-            <pre id="astroRaw" class="bg-light rounded p-2 small m-0" style="white-space:pre-wrap"></pre>
-          </details>
         </div>
       </div>
-    </div>
-
-    <script>
-      document.addEventListener('DOMContentLoaded', () => {
-        const form = document.getElementById('astroForm');
-        const body = document.getElementById('astroBody');
-        const raw  = document.getElementById('astroRaw');
-
-        function normalize(node){
-          const name = node.name || node.body || node.object || node.target || '';
-          const type = node.type || node.event_type || node.category || node.kind || '';
-          const when = node.time || node.date || node.occursAt || node.peak || node.instant || '';
-          const extra = node.magnitude || node.mag || node.altitude || node.note || '';
-          return {name, type, when, extra};
-        }
-
-        function toNumber(val, min, max){
-          const num = parseFloat(String(val).replace(',', '.'));
-          if (!Number.isFinite(num)) return null;
-          if (typeof min === 'number' && num < min) return null;
-          if (typeof max === 'number' && num > max) return null;
-          return num;
-        }
-
-        async function load(q){
-          body.innerHTML = '<tr><td colspan="5" class="text-muted">Загрузка…</td></tr>';
-          const lat = toNumber(q.lat, -90, 90);
-          const lon = toNumber(q.lon, -180, 180);
-          const days = Math.max(1, Math.min(366, parseInt(q.days || '7', 10) || 7));
-          if (lat === null || lon === null) {
-            body.innerHTML = '<tr><td colspan="5" class="text-danger">некорректные координаты (lat -90..90, lon -180..180)</td></tr>';
-            raw.textContent = '';
-            return;
-          }
-          const url = '/api/astro/events?' + new URLSearchParams({lat, lon, days, body: q.body || 'sun'}).toString();
-          try{
-            const r  = await fetch(url);
-            const js = await r.json();
-            const payload = js.data ?? js;
-            const data = payload.data ?? payload;
-            raw.textContent = JSON.stringify(data, null, 2);
-
-            const flat = [];
-            const rows = data.rows || [];
-            rows.forEach(row => {
-              const bodyName = row.body?.name || row.body?.id || '—';
-              (row.events || []).forEach(ev => {
-                const type = ev.type || ev.event_type || ev.category || ev.kind || '';
-                const when = ev.date || ev.time || ev.peak?.date || ev.eventHighlights?.peak?.date || ev.rise || ev.set || '';
-                const extra = ev.extraInfo?.magnitude
-                  ?? ev.extraInfo?.phase?.string
-                  ?? ev.eventHighlights?.peak?.altitude
-                  ?? ev.eventHighlights?.peak?.altitude?.degrees
-                  ?? ev.eventHighlights?.peak?.altitude?.string
-                  ?? '';
-                flat.push({name: bodyName, type, when, extra});
-              });
-            });
-
-            // fallback: позиции, если событий нет
-            if (!flat.length && Array.isArray(data.positions_rows)) {
-              data.positions_rows.forEach(row => {
-                const bodyName = row.body?.name || row.body?.id || '—';
-                (row.positions || []).forEach(p => {
-                  const when = p.date || '';
-                  const alt = p.position?.horizontal?.altitude?.string || p.position?.horizontal?.altitude?.degrees || '';
-                  const az  = p.position?.horizontal?.azimuth?.string  || p.position?.horizontal?.azimuth?.degrees  || '';
-                  const mag = p.extraInfo?.magnitude ?? '';
-                  const dist = p.distance?.fromEarth?.km ?? p.distance?.fromEarth?.au ?? '';
-                  const extra = `alt ${alt || '—'}, az ${az || '—'}, mag ${mag || '—'}, dist ${dist || '—'}`;
-                  flat.push({name: bodyName, type: 'position', when, extra});
-                });
-              });
-            }
-
-            if (!flat.length) {
-              body.innerHTML = '<tr><td colspan="5" class="text-muted">события не найдены (ответ API)</td></tr>';
-              return;
-            }
-            body.innerHTML = flat.slice(0,200).map((r,i)=>`
-              <tr>
-                <td>${i+1}</td>
-                <td>${r.name}</td>
-                <td>${r.type || '—'}</td>
-                <td><code>${r.when || '—'}</code></td>
-                <td>${r.extra || '—'}</td>
-              </tr>
-            `).join('');
-          }catch(e){
-            body.innerHTML = '<tr><td colspan="5" class="text-danger">ошибка загрузки</td></tr>';
-          }
-        }
-
-        form.addEventListener('submit', ev=>{
-          ev.preventDefault();
-          const q = Object.fromEntries(new FormData(form).entries());
-          load(q);
-        });
-
-        // автозагрузка
-        load({lat: form.lat.value, lon: form.lon.value, days: form.days.value});
-      });
-    </script>
-
-
-{{-- ===== CMS-блок (через репозиторий) ===== --}}
-<div class="card mt-3">
-  <div class="card-header fw-semibold">CMS — блок из БД</div>
-  <div class="card-body">
-    {!! $cms_block !!}
   </div>
 </div>
 
+  {{-- CMS Block --}}
+  @if(!empty($cms_block))
+  <div class="card mt-4">
+    <div class="card-header fw-semibold">📝 Информация</div>
+    <div class="card-body">{!! $cms_block !!}</div>
+  </div>
+  @endif
+</div>
+
+<style>
+  .hero-title {
+    background: linear-gradient(135deg, #8ad0ff, #a06bff);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    animation: heroGlow 3s ease-in-out infinite;
+  }
+  @keyframes heroGlow {
+    0%, 100% { filter: brightness(1); }
+    50% { filter: brightness(1.2); }
+  }
+
+  .stat-card {
+    transition: transform 0.3s, box-shadow 0.3s;
+    animation: statFadeIn 0.5s ease-out backwards;
+  }
+  .stat-card:nth-child(1) { animation-delay: 0s; }
+  .stat-card:nth-child(2) { animation-delay: 0.1s; }
+  .stat-card:nth-child(3) { animation-delay: 0.2s; }
+  .stat-card:nth-child(4) { animation-delay: 0.3s; }
+  .stat-card:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 10px 30px rgba(138,208,255,0.2);
+  }
+  .stat-icon { font-size: 2rem; margin-bottom: 0.5rem; }
+  .stat-value { font-size: 1.75rem; font-weight: 600; color: var(--cosmo-accent); }
+
+  @keyframes statFadeIn {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .nav-card {
+    transition: transform 0.3s, box-shadow 0.3s;
+    cursor: pointer;
+    animation: navCardIn 0.6s ease-out backwards;
+  }
+  .nav-card:hover {
+    transform: translateY(-8px) scale(1.02);
+    box-shadow: 0 20px 50px rgba(138,208,255,0.25);
+  }
+  .nav-card-icon { font-size: 2.5rem; margin-bottom: 1rem; }
+
+  @for($i = 0; $i < 6; $i++)
+    .col-md-6:nth-child({{ $i + 1 }}) .nav-card { animation-delay: {{ 0.1 + $i * 0.1 }}s; }
+  @endfor
+
+  @keyframes navCardIn {
+    from { opacity: 0; transform: translateY(30px) scale(0.95); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+  }
+</style>
+
 <script>
-document.addEventListener('DOMContentLoaded', () => {
-  if (window.L && window._issMapTileLayer) {
-    const map  = window._issMap;
-    let   tl   = window._issMapTileLayer;
-    tl.on('tileerror', () => {
+document.addEventListener('DOMContentLoaded', async () => {
+  // Update time
+  setInterval(() => {
+    const now = new Date();
+    document.getElementById('uptime').textContent = 
+      now.getUTCHours().toString().padStart(2,'0') + ':' + 
+      now.getUTCMinutes().toString().padStart(2,'0');
+  }, 1000);
+
+  // Load ISS data
+  try {
+    const r = await fetch('/api/iss/last');
+    const js = await r.json();
+    const data = js.data ?? js;
+    const p = data.payload ?? data;
+    if (p.velocity) document.getElementById('issSpeed').textContent = Math.round(p.velocity).toLocaleString();
+    if (p.altitude) document.getElementById('issAlt').textContent = Math.round(p.altitude).toLocaleString();
+  } catch(e) {}
+
+  // Mini Map
+  if (typeof L !== 'undefined') {
+    const map = L.map('map', { attributionControl: false }).setView([0, 0], 1);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+    const marker = L.marker([0, 0]).addTo(map).bindPopup('МКС');
+
+    async function updateMap() {
       try {
-        map.removeLayer(tl);
+        const r = await fetch('/api/iss/last');
+        const js = await r.json();
+        const data = js.data ?? js;
+        const p = data.payload ?? data;
+        if (p.latitude && p.longitude) {
+          const lat = parseFloat(p.latitude);
+          const lon = parseFloat(p.longitude);
+          marker.setLatLng([lat, lon]);
+          map.setView([lat, lon], 3);
+        }
       } catch(e) {}
-      tl = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {attribution: ''});
-      tl.addTo(map);
-      window._issMapTileLayer = tl;
-    });
+    }
+    updateMap();
+    setInterval(updateMap, 30000);
   }
 });
 </script>
-
+@endsection

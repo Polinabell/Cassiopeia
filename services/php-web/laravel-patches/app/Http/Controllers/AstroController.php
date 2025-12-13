@@ -36,4 +36,12 @@ class AstroController extends Controller
         }
         return ApiResponse::ok($resp['data'] ?? []);
     }
+
+    /**
+     * Render the Astro page.
+     */
+    public function page()
+    {
+        return view('astro');
+    }
 }

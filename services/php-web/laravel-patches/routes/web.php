@@ -7,22 +7,34 @@ use App\Http\Controllers\ProxyController;
 use App\Http\Controllers\AstroController;
 use App\Http\Controllers\CmsController;
 use App\Http\Controllers\IssController;
+use App\Http\Controllers\TelemetryController;
+use App\Http\Controllers\JwstController;
 
 Route::get('/', fn() => redirect('/dashboard'));
 
-// Панели
-Route::get('/dashboard', [DashboardController::class, 'index']);
-Route::get('/osdr',      [OsdrController::class,      'index']);
-Route::get('/iss',       [IssController::class,        'index']);
+// ============ Страницы (каждая бизнес-функция на своей странице) ============
+Route::get('/dashboard',  [DashboardController::class, 'index']);
+Route::get('/iss',        [IssController::class, 'index']);
+Route::get('/osdr',       [OsdrController::class, 'index']);
+Route::get('/telemetry',  [TelemetryController::class, 'index']);
+Route::get('/jwst',       [JwstController::class, 'index']);
+Route::get('/astro',      [AstroController::class, 'page']);
 
-// Прокси к rust_iss
+// ============ API: ISS ============
 Route::get('/api/iss/last',  [ProxyController::class, 'last']);
 Route::get('/api/iss/trend', [ProxyController::class, 'trend']);
 
-// JWST галерея (JSON)
-Route::get('/api/jwst/feed',   [DashboardController::class, 'jwstFeed']);
-Route::get("/api/astro/events",[AstroController::class, "events"]);
-Route::get("/api/astro/positions",[AstroController::class, "positions"]);
+// ============ API: JWST ============
+Route::get('/api/jwst/feed', [JwstController::class, 'feed']);
 
-// CMS
+// ============ API: Astronomy ============
+Route::get('/api/astro/events',    [AstroController::class, 'events']);
+Route::get('/api/astro/positions', [AstroController::class, 'positions']);
+
+
+// ============ Telemetry Downloads ============
+Route::get('/telemetry/download/csv',  [TelemetryController::class, 'downloadCsv']);
+Route::get('/telemetry/download/xlsx', [TelemetryController::class, 'downloadXlsx']);
+
+// ============ CMS ============
 Route::get('/page/{slug}', [CmsController::class, 'page']);

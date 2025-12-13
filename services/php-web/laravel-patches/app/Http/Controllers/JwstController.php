@@ -4,51 +4,26 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use App\Support\JwstHelper;
-use App\Services\RustApiService;
-use App\Repositories\CmsRepository;
-use App\Repositories\TelemetryRepository;
 
-class DashboardController extends Controller
+class JwstController extends Controller
 {
-    public function index(RustApiService $rust, CmsRepository $cms, TelemetryRepository $telemetry)
+    public function index(Request $r)
     {
-        $issResp = $rust->get('/last');
-        $iss = ($issResp['ok'] ?? false) ? ($issResp['data'] ?? []) : [];
-
-        $cmsBlock = $cms->findBlock('dashboard_experiment');
-        $cmsHtml = $cmsBlock ? $this->sanitize($cmsBlock['content']) : '<div class="text-muted">блок не найден</div>';
-
-        $telemetryRows = $telemetry->latest(10);
-
-        // фронт сам дернёт /api/iss/trend
-        return view('dashboard', [
-            'iss' => $iss,
-            'trend' => [],
-            'jw_gallery' => [], // не нужно сервером
-            'jw_observation_raw' => [],
-            'jw_observation_summary' => [],
-            'jw_observation_images' => [],
-            'jw_observation_files' => [],
-            'metrics' => [
-                'iss_speed' => $iss['payload']['velocity'] ?? null,
-                'iss_alt'   => $iss['payload']['altitude'] ?? null,
-                'neo_total' => 0,
+        return view('jwst', [
+            'filter' => [
+                'source' => $r->query('source', 'jpg'),
+                'suffix' => $r->query('suffix', ''),
+                'program' => $r->query('program', ''),
+                'instrument' => $r->query('instrument', ''),
+                'perPage' => $r->query('perPage', 24),
             ],
-            'cms_block' => $cmsHtml,
-            'telemetry' => $telemetryRows,
         ]);
     }
 
     /**
-     * /api/jwst/feed — серверный прокси/нормализатор JWST картинок.
-     * QS:
-     *  - source: jpg|suffix|program (default jpg)
-     *  - suffix: напр. _cal, _thumb, _crf
-     *  - program: ID программы (число)
-     *  - instrument: NIRCam|MIRI|NIRISS|NIRSpec|FGS
-     *  - page, perPage
+     * JWST feed endpoint with filtering.
      */
-    public function jwstFeed(Request $r)
+    public function feed(Request $r)
     {
         $src   = $r->query('source', 'jpg');
         $sfx   = trim((string)$r->query('suffix', ''));
@@ -56,6 +31,7 @@ class DashboardController extends Controller
         $instF = strtoupper(trim((string)$r->query('instrument', '')));
         $page  = max(1, (int)$r->query('page', 1));
         $per   = max(1, min(60, (int)$r->query('perPage', 24)));
+        $search = strtolower(trim((string)$r->query('q', '')));
 
         $jw = new JwstHelper();
 
@@ -79,7 +55,6 @@ class DashboardController extends Controller
             return array_values(array_unique(array_filter($cand)));
         };
 
-        // выбираем эндпоинт
         $path = 'all/type/jpg';
         if ($src === 'suffix' && $sfx !== '') $path = 'all/suffix/'.ltrim($sfx,'/');
         if ($src === 'program' && $prog !== '') $path = 'program/id/'.rawurlencode($prog);
@@ -91,7 +66,6 @@ class DashboardController extends Controller
         foreach ($list as $it) {
             if (!is_array($it)) continue;
 
-            // выбираем валидную картинку
             $url = null;
             $loc = $it['location'] ?? $it['url'] ?? null;
             $thumb = $it['thumbnail'] ?? null;
@@ -99,19 +73,29 @@ class DashboardController extends Controller
                 if (is_string($u) && preg_match('~\.(jpg|jpeg|png)(\?.*)?$~i', $u)) { $url = $u; break; }
             }
             if (!$url) {
-                $url = \App\Support\JwstHelper::pickImageUrl($it);
+                $url = JwstHelper::pickImageUrl($it);
             }
             if (!$url) continue;
 
-            // фильтр по инструменту
             $instList = $guessInstrument($it);
             if ($instF && $instList && !in_array($instF, $instList, true)) continue;
             if ($instF && !$instList) {
-                // если не смогли угадать — пробуем по полю instrument (строка) или пропускаем
                 $rawInst = strtoupper((string)($it['instrument'] ?? $it['details']['instrument'] ?? ''));
                 if ($rawInst && $rawInst !== $instF) continue;
-                if (!$rawInst) continue; // нет маркеров инструмента — не засоряем выдачу
+                if (!$rawInst) continue;
                 $instList = [$rawInst];
+            }
+
+            $caption = trim(
+                (($it['observation_id'] ?? '') ?: ($it['id'] ?? '')) .
+                ' · P' . ($it['program'] ?? '-') .
+                (($it['details']['suffix'] ?? '') ? ' · ' . $it['details']['suffix'] : '') .
+                ($instList ? ' · ' . implode('/', $instList) : '')
+            );
+
+            // Search filter
+            if ($search !== '' && stripos($caption, $search) === false) {
+                continue;
             }
 
             $items[] = [
@@ -120,12 +104,7 @@ class DashboardController extends Controller
                 'program'  => (string)($it['program'] ?? ''),
                 'suffix'   => (string)($it['details']['suffix'] ?? $it['suffix'] ?? ''),
                 'inst'     => $instList,
-                'caption'  => trim(
-                    (($it['observation_id'] ?? '') ?: ($it['id'] ?? '')) .
-                    ' · P' . ($it['program'] ?? '-') .
-                    (($it['details']['suffix'] ?? '') ? ' · ' . $it['details']['suffix'] : '') .
-                    ($instList ? ' · ' . implode('/', $instList) : '')
-                ),
+                'caption'  => $caption,
                 'link'     => $loc ?: $url,
             ];
             if (count($items) >= $per) break;
@@ -137,8 +116,5 @@ class DashboardController extends Controller
             'items'  => $items,
         ]);
     }
-
-    private function sanitize(string $html): string {
-        return strip_tags($html, '<p><b><strong><i><em><ul><ol><li><br><h3><h4><code>');
-    }
 }
+

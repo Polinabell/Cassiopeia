@@ -24,6 +24,11 @@ pub fn build_router(state: AppState) -> Router {
         .route("/space/:src/latest", get(space_latest))
         .route("/space/refresh", get(space_refresh))
         .route("/space/summary", get(space_summary))
+        // Convenience routes for PHP frontend
+        .route("/space/apod", get(space_apod))
+        .route("/space/neo", get(space_neo))
+        .route("/space/donki", get(space_donki))
+        .route("/space/spacex", get(space_spacex))
         .with_state(state)
 }
 
@@ -178,5 +183,87 @@ fn last_days(n: i64) -> (String, String) {
     let to = Utc::now().date_naive();
     let from = to - Days::new(n as u64);
     (from.to_string(), to.to_string())
+}
+
+// ===== Convenience routes for PHP frontend =====
+
+async fn space_apod(State(st): State<AppState>) -> ApiResult<serde_json::Value> {
+    // Try to get from cache first, refresh if not found
+    let cached = st.space.latest("apod").await?;
+    if let Some(item) = cached {
+        return Ok(ApiEnvelope::ok(item.payload));
+    }
+    // Refresh and get
+    let _ = st.space.apod().await;
+    let item = st.space.latest("apod").await?;
+    let payload = item.map(|i| i.payload).unwrap_or_else(|| serde_json::json!({"message": "no data"}));
+    Ok(ApiEnvelope::ok(payload))
+}
+
+#[derive(Deserialize)]
+struct NeoQuery {
+    start: Option<String>,
+    end: Option<String>,
+}
+
+async fn space_neo(
+    Query(q): Query<NeoQuery>,
+    State(st): State<AppState>,
+) -> ApiResult<serde_json::Value> {
+    // Try cache first
+    let cached = st.space.latest("neo").await?;
+    if let Some(item) = cached {
+        return Ok(ApiEnvelope::ok(item.payload));
+    }
+    // Refresh
+    let today = Utc::now().date_naive();
+    let start = q.start.unwrap_or_else(|| today.to_string());
+    let end = q.end.unwrap_or_else(|| (today + Days::new(7)).to_string());
+    let _ = st.space.neo(&start, &end).await;
+    let item = st.space.latest("neo").await?;
+    let payload = item.map(|i| i.payload).unwrap_or_else(|| serde_json::json!({"message": "no data"}));
+    Ok(ApiEnvelope::ok(payload))
+}
+
+#[derive(Deserialize)]
+struct DonkiQuery {
+    #[serde(rename = "type")]
+    event_type: Option<String>,
+    start: Option<String>,
+    end: Option<String>,
+}
+
+async fn space_donki(
+    Query(q): Query<DonkiQuery>,
+    State(st): State<AppState>,
+) -> ApiResult<serde_json::Value> {
+    let event_type = q.event_type.unwrap_or_else(|| "CME".to_string());
+    let cache_key = event_type.to_lowercase();
+    // Try cache first
+    let cached = st.space.latest(&cache_key).await?;
+    if let Some(item) = cached {
+        return Ok(ApiEnvelope::ok(item.payload));
+    }
+    // Refresh
+    let (default_start, default_end) = last_days(30);
+    let start = q.start.unwrap_or(default_start);
+    let end = q.end.unwrap_or(default_end);
+    let _ = st.space.donki(&event_type, &start, &end).await;
+    let item = st.space.latest(&cache_key).await?;
+    let payload = item.map(|i| i.payload).unwrap_or_else(|| serde_json::json!({"message": "no data"}));
+    Ok(ApiEnvelope::ok(payload))
+}
+
+async fn space_spacex(State(st): State<AppState>) -> ApiResult<serde_json::Value> {
+    // Try cache first
+    let cached = st.space.latest("spacex").await?;
+    if let Some(item) = cached {
+        return Ok(ApiEnvelope::ok(item.payload));
+    }
+    // Refresh
+    let _ = st.space.spacex().await;
+    let item = st.space.latest("spacex").await?;
+    let payload = item.map(|i| i.payload).unwrap_or_else(|| serde_json::json!({"message": "no data"}));
+    Ok(ApiEnvelope::ok(payload))
 }
 

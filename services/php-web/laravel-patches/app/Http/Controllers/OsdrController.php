@@ -10,20 +10,37 @@ class OsdrController extends Controller
 {
     public function index(Request $request, RustApiService $rust)
     {
-        $limit = (int) $request->query('limit', 20);
-        $limit = max(1, min(200, $limit));
+        $limit = (int) $request->query('limit', 100);
+        $limit = max(1, min(300, $limit));
+        $q = trim((string) $request->query('q', ''));
+        $sortCol = $request->query('sort', 'inserted_at');
+        $sortDir = strtolower($request->query('dir', 'desc')) === 'asc' ? 'asc' : 'desc';
 
-        $resp = $rust->get('/osdr/list?limit='.$limit);
+        $allowedCols = ['id', 'dataset_id', 'title', 'updated_at', 'inserted_at'];
+        if (!in_array($sortCol, $allowedCols, true)) {
+            $sortCol = 'inserted_at';
+        }
+
+        $resp = $rust->get('/osdr/list?limit='.min(500, $limit * 2));
         $error = null;
         if (($resp['ok'] ?? false) === false) {
             $error = $resp['error']['message'] ?? 'upstream error';
         }
         $items = $this->flattenOsdr($resp['data']['items'] ?? []);
+        $items = $this->applyFilters($items, $q);
+        $items = $this->applySort($items, $sortCol, $sortDir);
+        $items = array_slice($items, 0, $limit);
 
         return view('osdr', [
             'items' => $items,
-            'src'   => env('RUST_BASE', 'http://rust_iss:3000').'/osdr/list?limit='.$limit,
+            'src'   => env('RUST_BASE', 'http://rust_iss:3000').'/osdr/list',
             'error' => $error,
+            'filter' => [
+                'q' => $q,
+                'limit' => $limit,
+                'sort' => $sortCol,
+                'dir' => $sortDir,
+            ],
         ]);
     }
 
@@ -70,5 +87,39 @@ class OsdrController extends Controller
             if (is_array($v) && (isset($v['REST_URL']) || isset($v['rest_url']))) return true;
         }
         return false;
+    }
+
+    private function applyFilters(array $items, string $q): array
+    {
+        $q = mb_strtolower($q);
+
+        return array_values(array_filter($items, function ($it) use ($q) {
+            if ($q !== '') {
+                $hay = mb_strtolower(($it['dataset_id'] ?? '').' '.($it['title'] ?? ''));
+                if (!str_contains($hay, $q)) return false;
+            }
+            return true;
+        }));
+    }
+
+    private function applySort(array $items, string $col, string $dir): array
+    {
+        usort($items, function($a, $b) use ($col, $dir) {
+            $va = $a[$col] ?? '';
+            $vb = $b[$col] ?? '';
+            
+            // Try to compare as dates if the column looks like a date
+            if (in_array($col, ['updated_at', 'inserted_at'])) {
+                $va = strtotime($va) ?: 0;
+                $vb = strtotime($vb) ?: 0;
+            }
+            
+            if ($dir === 'asc') {
+                return $va <=> $vb;
+            }
+            return $vb <=> $va;
+        });
+        
+        return $items;
     }
 }

@@ -34,7 +34,9 @@ pub fn spawn_jobs(state: AppState) {
         10_003,
         state.clone(),
         |st| async move {
-            let _ = st.space.apod().await;
+            if let Err(e) = st.space.apod().await {
+                tracing::warn!(job = "apod", error = ?e, "apod fetch failed");
+            }
             Ok(())
         },
     );
@@ -48,7 +50,9 @@ pub fn spawn_jobs(state: AppState) {
             let today = chrono::Utc::now().date_naive();
             let start = (today - chrono::Days::new(2)).to_string();
             let end = today.to_string();
-            let _ = st.space.neo(&start, &end).await;
+            if let Err(e) = st.space.neo(&start, &end).await {
+                tracing::warn!(job = "neo", error = ?e, "neo fetch failed");
+            }
             Ok(())
         },
     );
@@ -60,8 +64,12 @@ pub fn spawn_jobs(state: AppState) {
         state.clone(),
         |st| async move {
             let (from, to) = last_days(5);
-            let _ = st.space.donki("FLR", &from, &to).await;
-            let _ = st.space.donki("CME", &from, &to).await;
+            if let Err(e) = st.space.donki("FLR", &from, &to).await {
+                tracing::warn!(job = "donki-flr", error = ?e, "donki FLR fetch failed");
+            }
+            if let Err(e) = st.space.donki("CME", &from, &to).await {
+                tracing::warn!(job = "donki-cme", error = ?e, "donki CME fetch failed");
+            }
             Ok(())
         },
     );
